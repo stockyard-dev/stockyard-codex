@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  codex:
+    build: .
+    ports:
+      - "9120:9120"
+    environment:
+      - PORT=9120
+      - DATA_DIR=/data
+      - CODEX_LICENSE_KEY=
+    volumes:
+      - codex_data:/data
+    restart: unless-stopped
+volumes:
+  codex_data:
