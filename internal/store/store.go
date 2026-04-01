@@ -1,50 +1,16 @@
 package store
-
-import (
-	"database/sql"
-	"fmt"
-	"os"
-	"path/filepath"
-
-	_ "modernc.org/sqlite"
-)
-
-type DB struct {
-	*sql.DB
-}
-
-func Open(dataDir string) (*DB, error) {
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("mkdir: %w", err)
-	}
-	dsn := filepath.Join(dataDir, "codex.db") + "?_journal_mode=WAL&_busy_timeout=5000"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	if err := migrate(db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	return &DB{db}, nil
-}
-
-func migrate(db *sql.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS pages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        parent_id INTEGER,
-        title TEXT NOT NULL,
-        slug TEXT NOT NULL UNIQUE,
-        content TEXT NOT NULL DEFAULT '',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-     );
-     CREATE TABLE IF NOT EXISTS page_versions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        page_id INTEGER NOT NULL,
-        content TEXT NOT NULL,
-        editor TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-     );`)
-	return err
-}
+import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
+type DB struct{*sql.DB}
+type Page struct{ID int64 `json:"id"`;Title string `json:"title"`;Slug string `json:"slug"`;Content string `json:"content"`;Tags string `json:"tags"`;AuthorID int64 `json:"author_id"`;CreatedAt time.Time `json:"created_at"`;UpdatedAt time.Time `json:"updated_at"`}
+type PageVersion struct{ID int64 `json:"id"`;PageID int64 `json:"page_id"`;Content string `json:"content"`;EditedAt time.Time `json:"edited_at"`}
+func Open(dataDir string)(*DB,error){if err:=os.MkdirAll(dataDir,0755);err!=nil{return nil,fmt.Errorf("mkdir: %w",err)};dsn:=filepath.Join(dataDir,"codex.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);if err:=migrate(db);err!=nil{return nil,fmt.Errorf("migrate: %w",err)};return &DB{db},nil}
+func migrate(db *sql.DB)error{_,err:=db.Exec(`CREATE TABLE IF NOT EXISTS pages(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,slug TEXT NOT NULL UNIQUE,content TEXT DEFAULT '',tags TEXT DEFAULT '',author_id INTEGER DEFAULT 0,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS page_versions(id INTEGER PRIMARY KEY AUTOINCREMENT,page_id INTEGER NOT NULL,content TEXT NOT NULL,edited_at DATETIME DEFAULT CURRENT_TIMESTAMP);CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(title,content,tags,content=pages,content_rowid=id);CREATE TRIGGER IF NOT EXISTS pages_ai AFTER INSERT ON pages BEGIN INSERT INTO pages_fts(rowid,title,content,tags) VALUES(new.id,new.title,new.content,new.tags);END;CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN INSERT INTO pages_fts(pages_fts,rowid,title,content,tags) VALUES('delete',old.id,old.title,old.content,old.tags);INSERT INTO pages_fts(rowid,title,content,tags) VALUES(new.id,new.title,new.content,new.tags);END;`);return err}
+func(db *DB)ListPages()([]Page,error){rows,err:=db.Query(`SELECT id,title,slug,tags,author_id,created_at,updated_at FROM pages ORDER BY updated_at DESC`);if err!=nil{return nil,err};defer rows.Close();var out[]Page;for rows.Next(){var p Page;rows.Scan(&p.ID,&p.Title,&p.Slug,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);out=append(out,p)};return out,nil}
+func(db *DB)CreatePage(p *Page)error{res,err:=db.Exec(`INSERT INTO pages(title,slug,content,tags)VALUES(?,?,?,?)`,p.Title,p.Slug,p.Content,p.Tags);if err!=nil{return err};p.ID,_=res.LastInsertId();return nil}
+func(db *DB)GetPage(id int64)(*Page,error){p:=&Page{};err:=db.QueryRow(`SELECT id,title,slug,content,tags,author_id,created_at,updated_at FROM pages WHERE id=?`,id).Scan(&p.ID,&p.Title,&p.Slug,&p.Content,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);if err==sql.ErrNoRows{return nil,nil};return p,err}
+func(db *DB)GetPageBySlug(slug string)(*Page,error){p:=&Page{};err:=db.QueryRow(`SELECT id,title,slug,content,tags,author_id,created_at,updated_at FROM pages WHERE slug=?`,slug).Scan(&p.ID,&p.Title,&p.Slug,&p.Content,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);if err==sql.ErrNoRows{return nil,nil};return p,err}
+func(db *DB)UpdatePage(p *Page)error{db.Exec(`INSERT INTO page_versions(page_id,content) SELECT id,content FROM pages WHERE id=?`,p.ID);_,err:=db.Exec(`UPDATE pages SET title=?,slug=?,content=?,tags=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,p.Title,p.Slug,p.Content,p.Tags,p.ID);return err}
+func(db *DB)DeletePage(id int64)error{_,err:=db.Exec(`DELETE FROM pages WHERE id=?`,id);return err}
+func(db *DB)SearchPages(q string)([]Page,error){rows,err:=db.Query(`SELECT p.id,p.title,p.slug,p.tags,p.author_id,p.created_at,p.updated_at FROM pages_fts f JOIN pages p ON p.id=f.rowid WHERE pages_fts MATCH ? ORDER BY rank LIMIT 20`,q);if err!=nil{return nil,err};defer rows.Close();var out[]Page;for rows.Next(){var p Page;rows.Scan(&p.ID,&p.Title,&p.Slug,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);out=append(out,p)};return out,nil}
+func(db *DB)ListVersions(pageID int64)([]PageVersion,error){rows,err:=db.Query(`SELECT id,page_id,content,edited_at FROM page_versions WHERE page_id=? ORDER BY edited_at DESC LIMIT 10`,pageID);if err!=nil{return nil,err};defer rows.Close();var out[]PageVersion;for rows.Next(){var v PageVersion;rows.Scan(&v.ID,&v.PageID,&v.Content,&v.EditedAt);out=append(out,v)};return out,nil}
+func(db *DB)CountPages()(int,error){var n int;db.QueryRow(`SELECT COUNT(*) FROM pages`).Scan(&n);return n,nil}
