@@ -1,16 +1,35 @@
 package store
-import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
-type DB struct{*sql.DB}
-type Page struct{ID int64 `json:"id"`;Title string `json:"title"`;Slug string `json:"slug"`;Content string `json:"content"`;Tags string `json:"tags"`;AuthorID int64 `json:"author_id"`;CreatedAt time.Time `json:"created_at"`;UpdatedAt time.Time `json:"updated_at"`}
-type PageVersion struct{ID int64 `json:"id"`;PageID int64 `json:"page_id"`;Content string `json:"content"`;EditedAt time.Time `json:"edited_at"`}
-func Open(dataDir string)(*DB,error){if err:=os.MkdirAll(dataDir,0755);err!=nil{return nil,fmt.Errorf("mkdir: %w",err)};dsn:=filepath.Join(dataDir,"codex.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);if err:=migrate(db);err!=nil{return nil,fmt.Errorf("migrate: %w",err)};return &DB{db},nil}
-func migrate(db *sql.DB)error{_,err:=db.Exec(`CREATE TABLE IF NOT EXISTS pages(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,slug TEXT NOT NULL UNIQUE,content TEXT DEFAULT '',tags TEXT DEFAULT '',author_id INTEGER DEFAULT 0,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS page_versions(id INTEGER PRIMARY KEY AUTOINCREMENT,page_id INTEGER NOT NULL,content TEXT NOT NULL,edited_at DATETIME DEFAULT CURRENT_TIMESTAMP);CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(title,content,tags,content=pages,content_rowid=id);CREATE TRIGGER IF NOT EXISTS pages_ai AFTER INSERT ON pages BEGIN INSERT INTO pages_fts(rowid,title,content,tags) VALUES(new.id,new.title,new.content,new.tags);END;CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN INSERT INTO pages_fts(pages_fts,rowid,title,content,tags) VALUES('delete',old.id,old.title,old.content,old.tags);INSERT INTO pages_fts(rowid,title,content,tags) VALUES(new.id,new.title,new.content,new.tags);END;`);return err}
-func(db *DB)ListPages()([]Page,error){rows,err:=db.Query(`SELECT id,title,slug,tags,author_id,created_at,updated_at FROM pages ORDER BY updated_at DESC`);if err!=nil{return nil,err};defer rows.Close();var out[]Page;for rows.Next(){var p Page;rows.Scan(&p.ID,&p.Title,&p.Slug,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);out=append(out,p)};return out,nil}
-func(db *DB)CreatePage(p *Page)error{res,err:=db.Exec(`INSERT INTO pages(title,slug,content,tags)VALUES(?,?,?,?)`,p.Title,p.Slug,p.Content,p.Tags);if err!=nil{return err};p.ID,_=res.LastInsertId();return nil}
-func(db *DB)GetPage(id int64)(*Page,error){p:=&Page{};err:=db.QueryRow(`SELECT id,title,slug,content,tags,author_id,created_at,updated_at FROM pages WHERE id=?`,id).Scan(&p.ID,&p.Title,&p.Slug,&p.Content,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);if err==sql.ErrNoRows{return nil,nil};return p,err}
-func(db *DB)GetPageBySlug(slug string)(*Page,error){p:=&Page{};err:=db.QueryRow(`SELECT id,title,slug,content,tags,author_id,created_at,updated_at FROM pages WHERE slug=?`,slug).Scan(&p.ID,&p.Title,&p.Slug,&p.Content,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);if err==sql.ErrNoRows{return nil,nil};return p,err}
-func(db *DB)UpdatePage(p *Page)error{db.Exec(`INSERT INTO page_versions(page_id,content) SELECT id,content FROM pages WHERE id=?`,p.ID);_,err:=db.Exec(`UPDATE pages SET title=?,slug=?,content=?,tags=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,p.Title,p.Slug,p.Content,p.Tags,p.ID);return err}
-func(db *DB)DeletePage(id int64)error{_,err:=db.Exec(`DELETE FROM pages WHERE id=?`,id);return err}
-func(db *DB)SearchPages(q string)([]Page,error){rows,err:=db.Query(`SELECT p.id,p.title,p.slug,p.tags,p.author_id,p.created_at,p.updated_at FROM pages_fts f JOIN pages p ON p.id=f.rowid WHERE pages_fts MATCH ? ORDER BY rank LIMIT 20`,q);if err!=nil{return nil,err};defer rows.Close();var out[]Page;for rows.Next(){var p Page;rows.Scan(&p.ID,&p.Title,&p.Slug,&p.Tags,&p.AuthorID,&p.CreatedAt,&p.UpdatedAt);out=append(out,p)};return out,nil}
-func(db *DB)ListVersions(pageID int64)([]PageVersion,error){rows,err:=db.Query(`SELECT id,page_id,content,edited_at FROM page_versions WHERE page_id=? ORDER BY edited_at DESC LIMIT 10`,pageID);if err!=nil{return nil,err};defer rows.Close();var out[]PageVersion;for rows.Next(){var v PageVersion;rows.Scan(&v.ID,&v.PageID,&v.Content,&v.EditedAt);out=append(out,v)};return out,nil}
-func(db *DB)CountPages()(int,error){var n int;db.QueryRow(`SELECT COUNT(*) FROM pages`).Scan(&n);return n,nil}
+import ("database/sql";"encoding/json";"fmt";"os";"path/filepath";"strings";"time";_ "modernc.org/sqlite")
+type DB struct{db *sql.DB}
+type Snippet struct{ID string `json:"id"`;Title string `json:"title"`;Code string `json:"code"`;Language string `json:"language,omitempty"`;Description string `json:"description,omitempty"`;Tags []string `json:"tags"`;Public bool `json:"public"`;Favorite bool `json:"favorite"`;CreatedAt string `json:"created_at"`;UpdatedAt string `json:"updated_at"`}
+func Open(d string)(*DB,error){if err:=os.MkdirAll(d,0755);err!=nil{return nil,err};db,err:=sql.Open("sqlite",filepath.Join(d,"codex.db")+"?_journal_mode=WAL&_busy_timeout=5000");if err!=nil{return nil,err}
+db.Exec(`CREATE TABLE IF NOT EXISTS snippets(id TEXT PRIMARY KEY,title TEXT NOT NULL,code TEXT DEFAULT '',language TEXT DEFAULT '',description TEXT DEFAULT '',tags_json TEXT DEFAULT '[]',public INTEGER DEFAULT 0,favorite INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')),updated_at TEXT DEFAULT(datetime('now')))`)
+return &DB{db:db},nil}
+func(d *DB)Close()error{return d.db.Close()}
+func genID()string{return fmt.Sprintf("%d",time.Now().UnixNano())}
+func now()string{return time.Now().UTC().Format(time.RFC3339)}
+func(d *DB)Create(s *Snippet)error{s.ID=genID();s.CreatedAt=now();s.UpdatedAt=s.CreatedAt;if s.Tags==nil{s.Tags=[]string{}}
+tj,_:=json.Marshal(s.Tags);pub:=0;if s.Public{pub=1};fav:=0;if s.Favorite{fav=1}
+_,err:=d.db.Exec(`INSERT INTO snippets VALUES(?,?,?,?,?,?,?,?,?,?)`,s.ID,s.Title,s.Code,s.Language,s.Description,string(tj),pub,fav,s.CreatedAt,s.UpdatedAt);return err}
+func(d *DB)scan(sc interface{Scan(...any)error})*Snippet{var s Snippet;var tj string;var pub,fav int
+if sc.Scan(&s.ID,&s.Title,&s.Code,&s.Language,&s.Description,&tj,&pub,&fav,&s.CreatedAt,&s.UpdatedAt)!=nil{return nil}
+json.Unmarshal([]byte(tj),&s.Tags);if s.Tags==nil{s.Tags=[]string{}};s.Public=pub==1;s.Favorite=fav==1;return &s}
+func(d *DB)Get(id string)*Snippet{return d.scan(d.db.QueryRow(`SELECT * FROM snippets WHERE id=?`,id))}
+func(d *DB)List(lang,tag string,favOnly bool)[]Snippet{where:=[]string{"1=1"};args:=[]any{}
+if lang!=""{where=append(where,"language=?");args=append(args,lang)}
+if tag!=""{where=append(where,`tags_json LIKE ?`);args=append(args,`%"`+tag+`"%`)}
+if favOnly{where=append(where,"favorite=1")}
+rows,_:=d.db.Query(`SELECT * FROM snippets WHERE `+strings.Join(where," AND ")+` ORDER BY favorite DESC,updated_at DESC`,args...);if rows==nil{return nil};defer rows.Close()
+var o []Snippet;for rows.Next(){if s:=d.scan(rows);s!=nil{o=append(o,*s)}};return o}
+func(d *DB)Update(id string,s *Snippet)error{tj,_:=json.Marshal(s.Tags);pub:=0;if s.Public{pub=1};fav:=0;if s.Favorite{fav=1}
+_,err:=d.db.Exec(`UPDATE snippets SET title=?,code=?,language=?,description=?,tags_json=?,public=?,favorite=?,updated_at=? WHERE id=?`,s.Title,s.Code,s.Language,s.Description,string(tj),pub,fav,now(),id);return err}
+func(d *DB)ToggleFavorite(id string)error{_,err:=d.db.Exec(`UPDATE snippets SET favorite=1-favorite,updated_at=? WHERE id=?`,now(),id);return err}
+func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM snippets WHERE id=?`,id);return err}
+func(d *DB)Search(q string)[]Snippet{s:="%"+q+"%";rows,_:=d.db.Query(`SELECT * FROM snippets WHERE title LIKE ? OR code LIKE ? OR description LIKE ? ORDER BY updated_at DESC`,s,s,s);if rows==nil{return nil};defer rows.Close()
+var o []Snippet;for rows.Next(){if sn:=d.scan(rows);sn!=nil{o=append(o,*sn)}};return o}
+func(d *DB)Languages()[]string{rows,_:=d.db.Query(`SELECT DISTINCT language FROM snippets WHERE language!='' ORDER BY language`);if rows==nil{return nil};defer rows.Close();var o []string;for rows.Next(){var l string;rows.Scan(&l);o=append(o,l)};return o}
+func(d *DB)AllTags()[]string{rows,_:=d.db.Query(`SELECT DISTINCT tags_json FROM snippets WHERE tags_json!='[]'`);if rows==nil{return nil};defer rows.Close()
+seen:=map[string]bool{};for rows.Next(){var j string;rows.Scan(&j);var tags []string;json.Unmarshal([]byte(j),&tags);for _,t:=range tags{seen[t]=true}}
+var o []string;for t:=range seen{o=append(o,t)};return o}
+type Stats struct{Snippets int `json:"snippets"`;Languages int `json:"languages"`;Favorites int `json:"favorites"`}
+func(d *DB)Stats()Stats{var s Stats;d.db.QueryRow(`SELECT COUNT(*) FROM snippets`).Scan(&s.Snippets);s.Languages=len(d.Languages());d.db.QueryRow(`SELECT COUNT(*) FROM snippets WHERE favorite=1`).Scan(&s.Favorites);return s}
