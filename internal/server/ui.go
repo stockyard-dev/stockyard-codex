@@ -1,27 +1,64 @@
 package server
 import "net/http"
-func(s *Server)dashboard(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Write([]byte(dashHTML))}
-const dashHTML=`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codex</title>
-<style>:root{--bg:#1a1410;--bg2:#241e18;--bg3:#2e261e;--rust:#c45d2c;--rl:#e8753a;--leather:#a0845c;--cream:#f0e6d3;--cd:#bfb5a3;--cm:#7a7060;--gold:#d4a843;--green:#4a9e5c;--mono:'JetBrains Mono',Consolas,monospace;--serif:'Libre Baskerville',Georgia,serif}*{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--cream);font-family:var(--mono);font-size:13px;line-height:1.6}.hdr{padding:.6rem 1.2rem;border-bottom:1px solid var(--bg3);display:flex;justify-content:space-between;align-items:center}.hdr h1{font-family:var(--serif);font-size:1rem}.hdr h1 span{color:var(--rl)}.main{max-width:800px;margin:0 auto;padding:1rem}.btn{font-family:var(--mono);font-size:.68rem;padding:.3rem .6rem;border:1px solid;cursor:pointer;background:transparent}.btn-p{border-color:var(--rust);color:var(--rl)}.btn-p:hover{background:var(--rust);color:var(--cream)}.toolbar{display:flex;gap:.5rem;margin-bottom:.8rem;flex-wrap:wrap;align-items:center}.toolbar input,.toolbar select{background:var(--bg);border:1px solid var(--bg3);color:var(--cream);padding:.3rem .5rem;font-family:var(--mono);font-size:.72rem;outline:none}.toolbar input{flex:1;min-width:150px}.snip{background:var(--bg2);border:1px solid var(--bg3);margin-bottom:.5rem;overflow:hidden}.snip-hdr{padding:.5rem .7rem;display:flex;align-items:center;gap:.5rem;cursor:pointer}.snip-hdr:hover{background:var(--bg3)}.snip-title{font-weight:600;flex:1;font-size:.82rem}.snip-lang{font-size:.6rem;padding:.05rem .3rem;background:var(--bg3);color:var(--gold);border-radius:2px}.snip-fav{cursor:pointer;font-size:.8rem}.snip-tag{font-size:.55rem;padding:0 .25rem;background:var(--bg3);color:var(--ll);border-radius:2px;margin-left:.2rem}.snip-code{padding:.5rem .7rem;background:var(--bg);border-top:1px solid var(--bg3);font-size:.75rem;overflow-x:auto;white-space:pre;max-height:200px;overflow-y:auto;color:var(--cd);display:none}.empty{text-align:center;padding:2rem;color:var(--cm);font-style:italic;font-family:var(--serif)}.modal-bg{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:100}.modal{background:var(--bg2);border:1px solid var(--bg3);padding:1.5rem;width:95%;max-width:600px;max-height:90vh;overflow-y:auto}.modal h2{font-family:var(--serif);font-size:.9rem;margin-bottom:1rem}label.fl{display:block;font-size:.65rem;color:var(--leather);text-transform:uppercase;letter-spacing:1px;margin-bottom:.2rem;margin-top:.5rem}input[type=text],textarea,select{background:var(--bg);border:1px solid var(--bg3);color:var(--cream);padding:.35rem .5rem;font-family:var(--mono);font-size:.78rem;width:100%;outline:none}textarea{resize:vertical;min-height:120px}</style>
-<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital@0;1&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-</head><body><div class="hdr"><h1><span>Codex</span></h1><button class="btn btn-p" onclick="showNew()">+ Snippet</button></div>
-<div class="main"><div id="upgrade-banner" style="display:none;background:#241e18;border:1px solid #8b3d1a;border-left:3px solid #c45d2c;padding:.6rem 1rem;font-size:.78rem;color:#bfb5a3;margin-bottom:.8rem"><strong style="color:#f0e6d3">Free tier</strong> — 10 items max. <a href="https://stockyard.dev/codex/" target="_blank" style="color:#e8753a">Upgrade to Pro →</a></div><div class="toolbar"><input type="text" id="q" placeholder="Search snippets..." onkeydown="if(event.key==='Enter')search()"><select id="langFilter" onchange="load()"><option value="">All languages</option></select><button class="btn btn-p" onclick="search()">Search</button></div><div id="list"></div></div><div id="modal"></div>
+func(s *Server)dashboard(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html");w.Write([]byte(dashHTML))}
+const dashHTML=`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Codex</title>
+<style>:root{--bg:#1a1410;--bg2:#241e18;--bg3:#2e261e;--rust:#e8753a;--leather:#a0845c;--cream:#f0e6d3;--cd:#bfb5a3;--cm:#7a7060;--gold:#d4a843;--green:#4a9e5c;--mono:'JetBrains Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--cream);font-family:var(--mono);line-height:1.5}
+.hdr{padding:1rem 1.5rem;border-bottom:1px solid var(--bg3);display:flex;justify-content:space-between;align-items:center}.hdr h1{font-size:.9rem;letter-spacing:2px}
+.main{padding:1.5rem;max-width:900px;margin:0 auto}
+.search{width:100%;padding:.5rem .8rem;background:var(--bg2);border:1px solid var(--bg3);color:var(--cream);font-family:var(--mono);font-size:.78rem;margin-bottom:1rem}
+.lang-bar{display:flex;gap:.3rem;margin-bottom:1rem;flex-wrap:wrap}
+.lang-btn{font-size:.6rem;padding:.2rem .5rem;border:1px solid var(--bg3);background:var(--bg);color:var(--cm);cursor:pointer}.lang-btn:hover{border-color:var(--leather)}.lang-btn.active{border-color:var(--rust);color:var(--rust)}
+.snip{background:var(--bg2);border:1px solid var(--bg3);margin-bottom:.8rem}
+.snip-hdr{padding:.6rem .8rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bg3)}
+.snip-title{font-size:.82rem;color:var(--cream)}.snip-lang{font-size:.55rem;padding:.1rem .3rem;background:var(--bg3);color:var(--gold)}
+.snip-code{padding:.8rem;background:#0d0b09;font-size:.72rem;color:var(--cd);overflow-x:auto;white-space:pre;max-height:200px;cursor:pointer;position:relative}
+.snip-code:hover::after{content:'click to copy';position:absolute;top:.3rem;right:.3rem;font-size:.5rem;color:var(--cm)}
+.snip-meta{padding:.4rem .8rem;font-size:.55rem;color:var(--cm);display:flex;gap:.6rem}
+.tag{font-size:.5rem;padding:.05rem .25rem;background:var(--bg3);color:var(--cm)}
+.btn{font-size:.6rem;padding:.25rem .6rem;cursor:pointer;border:1px solid var(--bg3);background:var(--bg);color:var(--cd)}.btn:hover{border-color:var(--leather);color:var(--cream)}
+.btn-p{background:var(--rust);border-color:var(--rust);color:var(--bg)}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}.modal-bg.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--bg3);padding:1.5rem;width:500px;max-width:90vw}
+.modal h2{font-size:.8rem;margin-bottom:1rem;color:var(--rust)}
+.fr{margin-bottom:.5rem}.fr label{display:block;font-size:.55rem;color:var(--cm);text-transform:uppercase;letter-spacing:1px;margin-bottom:.15rem}
+.fr input,.fr select,.fr textarea{width:100%;padding:.35rem .5rem;background:var(--bg);border:1px solid var(--bg3);color:var(--cream);font-family:var(--mono);font-size:.7rem}
+.fr textarea{min-height:150px;white-space:pre}
+.acts{display:flex;gap:.4rem;justify-content:flex-end;margin-top:.8rem}
+.empty{text-align:center;padding:3rem;color:var(--cm);font-style:italic;font-size:.75rem}
+</style></head><body>
+<div class="hdr"><h1>CODEX</h1><button class="btn btn-p" onclick="openForm()">+ New Snippet</button></div>
+<div class="main">
+<input class="search" id="search" placeholder="Search snippets..." oninput="render()">
+<div class="lang-bar" id="langs"></div>
+<div id="snippets"></div>
+</div>
+<div class="modal-bg" id="mbg" onclick="if(event.target===this)cm()"><div class="modal" id="mdl"></div></div>
 <script>
-let snippets=[];
-async function api(u,o){return(await fetch(u,o)).json()}
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-async function init(){const ld=await api('/api/languages');document.getElementById('langFilter').innerHTML='<option value="">All</option>'+((ld.languages||[]).map(l=>'<option>'+esc(l)+'</option>').join(''));load()}
-async function load(){const lang=document.getElementById('langFilter').value;const p=lang?'?language='+lang:'';const d=await api('/api/snippets'+p);snippets=d.snippets||[];render()}
-async function search(){const q=document.getElementById('q').value;if(!q){load();return};const d=await api('/api/search?q='+encodeURIComponent(q));snippets=d.snippets||[];render()}
-function render(){document.getElementById('list').innerHTML=snippets.length?snippets.map(s=>{
-const tags=(s.tags||[]).map(t=>'<span class="snip-tag">'+esc(t)+'</span>').join('');
-return'<div class="snip"><div class="snip-hdr" onclick="toggle(this)"><span class="snip-fav" onclick="event.stopPropagation();fav(\''+s.id+'\')">'+(s.favorite?'⭐':'☆')+'</span><span class="snip-title">'+esc(s.title)+'</span>'+(s.language?'<span class="snip-lang">'+esc(s.language)+'</span>':'')+tags+'<span style="cursor:pointer;font-size:.55rem;color:var(--cm)" onclick="event.stopPropagation();del(\''+s.id+'\')">del</span></div><div class="snip-code">'+esc(s.code)+'</div></div>'}).join(''):'<div class="empty">No snippets yet.</div>'}
-function toggle(el){const code=el.nextElementSibling;code.style.display=code.style.display==='none'||!code.style.display?'block':'none'}
-async function fav(id){await api('/api/snippets/'+id+'/favorite',{method:'POST'});load()}
-async function del(id){if(!confirm('Delete?'))return;await api('/api/snippets/'+id,{method:'DELETE'});load()}
-function showNew(){document.getElementById('modal').innerHTML='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal"><h2>New Snippet</h2><label class="fl">Title</label><input type="text" id="ns-title"><label class="fl">Language</label><input type="text" id="ns-lang" placeholder="go, python, javascript"><label class="fl">Code</label><textarea id="ns-code" rows="8"></textarea><label class="fl">Description</label><input type="text" id="ns-desc"><label class="fl">Tags (comma-separated)</label><input type="text" id="ns-tags" placeholder="util, api, snippet"><div style="display:flex;gap:.5rem;margin-top:1rem"><button class="btn btn-p" onclick="save()">Save</button><button class="btn" style="border-color:var(--bg3);color:var(--cm)" onclick="closeModal()">Cancel</button></div></div></div>'}
-async function save(){const tags=(document.getElementById('ns-tags').value||'').split(',').map(s=>s.trim()).filter(Boolean);const b={title:document.getElementById('ns-title').value,language:document.getElementById('ns-lang').value,code:document.getElementById('ns-code').value,description:document.getElementById('ns-desc').value,tags};if(!b.title){alert('Title required');return};await api('/api/snippets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});closeModal();load();init()}
-function closeModal(){document.getElementById('modal').innerHTML=''}
-init()
-fetch('/api/tier').then(r=>r.json()).then(j=>{if(j.tier==='free'){var b=document.getElementById('upgrade-banner');if(b)b.style.display='block'}}).catch(()=>{var b=document.getElementById('upgrade-banner');if(b)b.style.display='block'});
+const A='/api';let snippets=[],filterLang='';
+async function load(){const r=await fetch(A+'/snippets').then(r=>r.json());snippets=r.snippets||[];
+const langs=[...new Set(snippets.map(s=>s.language).filter(l=>l))];
+let lh='<button class="lang-btn'+(filterLang===''?' active':'')+'" onclick="setLang(\'\')">All ('+snippets.length+')</button>';
+langs.forEach(l=>{lh+='<button class="lang-btn'+(filterLang===l?' active':'')+'" onclick="setLang(\''+l+'\')">'+esc(l)+'</button>';});
+document.getElementById('langs').innerHTML=lh;render();}
+function setLang(l){filterLang=l;render();}
+function render(){const q=(document.getElementById('search').value||'').toLowerCase();
+let filtered=snippets.filter(s=>{if(filterLang&&s.language!==filterLang)return false;if(q&&!(s.title+s.code+s.description+s.language).toLowerCase().includes(q))return false;return true;});
+if(!filtered.length){document.getElementById('snippets').innerHTML='<div class="empty">No snippets.</div>';return;}
+let h='';filtered.forEach(s=>{
+h+='<div class="snip"><div class="snip-hdr"><div class="snip-title">'+(s.favorite?'★ ':'')+esc(s.title)+'</div><div style="display:flex;gap:.3rem;align-items:center">';
+if(s.language)h+='<span class="snip-lang">'+esc(s.language)+'</span>';
+h+='<button class="btn" onclick="del(\''+s.id+'\')" style="font-size:.5rem;color:var(--cm)">✕</button></div></div>';
+h+='<div class="snip-code" onclick="navigator.clipboard.writeText(this.textContent)">'+esc(s.code)+'</div>';
+h+='<div class="snip-meta">';if(s.description)h+='<span>'+esc(s.description)+'</span>';
+const tags=JSON.parse(s.tags_json||'[]');tags.forEach(t=>{h+='<span class="tag">'+esc(t)+'</span>';});
+h+='<span>'+ft(s.created_at)+'</span></div></div>';});
+document.getElementById('snippets').innerHTML=h;}
+async function del(id){if(confirm('Delete?')){await fetch(A+'/snippets/'+id,{method:'DELETE'});load();}}
+function openForm(){document.getElementById('mdl').innerHTML='<h2>New Snippet</h2><div class="fr"><label>Title</label><input id="f-t" placeholder="e.g. Retry with exponential backoff"></div><div class="fr"><label>Language</label><input id="f-l" placeholder="go, python, javascript, sql"></div><div class="fr"><label>Code</label><textarea id="f-c" placeholder="paste your code here"></textarea></div><div class="fr"><label>Description</label><input id="f-d"></div><div class="fr"><label>Tags (JSON array)</label><input id="f-tg" value="[]"></div><div class="acts"><button class="btn" onclick="cm()">Cancel</button><button class="btn btn-p" onclick="sub()">Save</button></div>';document.getElementById('mbg').classList.add('open');}
+async function sub(){await fetch(A+'/snippets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('f-t').value,language:document.getElementById('f-l').value,code:document.getElementById('f-c').value,description:document.getElementById('f-d').value,tags_json:document.getElementById('f-tg').value})});cm();load();}
+function cm(){document.getElementById('mbg').classList.remove('open');}
+function ft(t){if(!t)return'';return new Date(t).toLocaleDateString();}
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+load();
 </script></body></html>`
